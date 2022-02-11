@@ -8,7 +8,7 @@
  * file that was distributed with this source code.
  */
 
-namespace MarijnVanWezel\IUCNBot;
+namespace MarijnVanWezel\IUCNBot\RedList;
 
 use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
 

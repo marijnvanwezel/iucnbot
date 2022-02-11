@@ -20,6 +20,7 @@ use Addwiki\Mediawiki\Api\Client\Action\ActionApi;
 use Addwiki\Mediawiki\Api\Client\Auth\UserAndPassword;
 use Addwiki\Mediawiki\Api\MediawikiFactory;
 use Exception;
+use MarijnVanWezel\IUCNBot\RedList\RedListAssessment;
 use MarijnVanWezel\IUCNBot\RedList\RedListClient;
 use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
 
