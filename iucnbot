@@ -1,0 +1,119 @@
+#!/usr/bin/env php
+<?php declare(strict_types=1);
+/**
+ * This file is part of marijnvanwezel/iucnbot.
+ *
+ * (c) Marijn van Wezel <marijnvanwezel@gmail.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+// Some constants used for compatibility checks
+use Addwiki\Mediawiki\Api\Client\Action\ActionApi;
+use Addwiki\Mediawiki\Api\Client\Auth\UserAndPassword;
+use MarijnVanWezel\IUCNBot\IUCNBot;
+use MarijnVanWezel\IUCNBot\RedList\RedListClient;
+
+const REQUIRED_PHP_VERSION = '8.1.0';
+const REQUIRED_EXTENSIONS = [];
+const COMPOSER_AUTOLOADER_PATH_CANDIDATES = [
+	__DIR__ . '/../../autoload.php',
+	__DIR__ . '/../vendor/autoload.php',
+	__DIR__ . '/vendor/autoload.php'
+];
+
+// Make sure the PHP interpreter is at least on version REQUIRED_PHP_VERSION
+if (version_compare(REQUIRED_PHP_VERSION, PHP_VERSION, '>')) {
+	$errorMessage = sprintf(
+		'This version of IUCNBot requires PHP >= ' . REQUIRED_PHP_VERSION . '.' . PHP_EOL .
+		'You are using PHP %s (%s).' . PHP_EOL,
+		PHP_VERSION,
+		PHP_BINARY
+	);
+
+	fwrite(STDERR, $errorMessage);
+
+	die(1);
+}
+
+// Make sure all extensions in REQUIRED_EXTENSIONS are loaded
+foreach (REQUIRED_EXTENSIONS as $extension) {
+	if (extension_loaded($extension)) {
+		continue;
+	}
+
+	$errorMessage = sprintf('IUCNBot requires the "%s" extension.' . PHP_EOL, $extension);
+	fwrite(STDERR, $errorMessage);
+
+	die(1);
+}
+
+// Retrieve the path to the Composer autoloader
+if (getenv('COMPOSER_AUTOLOADER_PATH') !== false) {
+	$path = getenv('COMPOSER_AUTOLOADER_PATH');
+
+	if (!file_exists($path)) {
+		$errorMessage = 'The autoloader path specified through the "COMPOSER_AUTOLOADER_PATH" environment variable ' .
+			'does not exist.' . PHP_EOL;
+
+		fwrite(STDERR, $errorMessage);
+
+		die(1);
+	} elseif (!is_readable($path)) {
+		$errorMessage = 'The autoloader path specified through the "COMPOSER_AUTOLOADER_PATH" environment variable ' .
+			'is not readable. Make sure that you have sufficient permissions.' . PHP_EOL;
+
+		fwrite(STDERR, $errorMessage);
+
+		die(1);
+	} else {
+		define('COMPOSER_AUTOLOADER_PATH', $path);
+	}
+} elseif (isset($GLOBALS['_composer_autoload_path'])) {
+	// See https://getcomposer.org/doc/articles/vendor-binaries.md#finding-the-composer-autoloader-from-a-binary
+	define('COMPOSER_AUTOLOADER_PATH', $GLOBALS['_composer_autoload_path']);
+} else {
+	// Try some plausible paths for the autoloader
+	foreach (COMPOSER_AUTOLOADER_PATH_CANDIDATES as $path) {
+		if (is_readable($path)) {
+			define('COMPOSER_AUTOLOADER_PATH', $path);
+			break;
+		}
+	}
+}
+
+if (!defined('COMPOSER_AUTOLOADER_PATH')) {
+	$errorMessage = 'You need to set up your project\'s dependencies using Composer:' . PHP_EOL . PHP_EOL .
+		'    composer install' . PHP_EOL . PHP_EOL .
+		'You can learn more about Composer on https://getcomposer.org/.' . PHP_EOL;
+
+	fwrite(STDERR, $errorMessage);
+
+	die(1);
+}
+
+require COMPOSER_AUTOLOADER_PATH;
+
+if (!is_string(getenv('IUCNBOT_API_TOKEN'))) {
+	$errorMessage = 'You must specify an API token through the "IUCNBOT_API_TOKEN" environment variable.' . PHP_EOL;
+
+	fwrite(STDERR, $errorMessage);
+
+	die(1);
+}
+
+if (!is_string(getenv('MEDIAWIKI_USER_NAME')) || !is_string(getenv('MEDIAWIKI_PASSWORD'))) {
+	$errorMessage = 'You must specify your MediaWiki username and password through the "MEDIAWIKI_USER_NAME" and' .
+        '"MEDIAWIKI_PASSWORD" environment variable respectively.' . PHP_EOL;
+
+	fwrite(STDERR, $errorMessage);
+
+	die(1);
+}
+
+(new IUCNBot(
+    getenv('IUCNBOT_API_TOKEN'),
+	getenv('MEDIAWIKI_USER_NAME'),
+	getenv('MEDIAWIKI_PASSWORD')
+))->run();

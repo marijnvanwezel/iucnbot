@@ -1,0 +1,38 @@
+#!/bin/env python3
+import json
+import re
+import sys
+import mwparserfromhell
+
+
+def main(argv):
+    wikicode = mwparserfromhell.parse(argv[0])
+    taxobox = get_taxobox(wikicode)
+
+    if taxobox is None:
+        sys.exit(1)
+
+    taxobox_info = json.loads(argv[1])
+
+    for param_name in taxobox_info:
+        taxobox.add(param_name, taxobox_info[param_name])
+
+    print(wikicode)
+
+
+def get_taxobox(wikicode):
+    templates = wikicode.filter_templates()
+
+    taxobox = None
+    pattern = re.compile('((Template|Sjabloon):)?[T|t]axobox')
+
+    for template in templates:
+        if pattern.match(str(template.name)):
+            taxobox = template
+            break
+
+    return taxobox
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
