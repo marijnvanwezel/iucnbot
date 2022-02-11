@@ -14,15 +14,27 @@ use Exception;
 
 enum RedListStatus
 {
-	case EX;
-	case EW;
-	case CR;
-	case EN;
-	case VU;
-	case LR;
-	case NT;
-	case LC;
-	case DD;
+	private const DICT_DUTCH = [
+		'EX' => ['ex', 'uitgestorven', 'extinct'],
+		'EW' => ['ew', 'uihw', 'uitgestorven in het wild', 'uitgestorveninhetwild', 'extinct in the wild', 'extinctinthewild'],
+		'CR' => ['cr', 'kritiek', 'critically endangered'],
+		'EN' => ['en', 'bedreigd', 'endangered'],
+		'VU' => ['vu', 'kwetsbaar', 'vulnerable'],
+		'CD' => ['cd', 'lr/cd', 'vba', 'van bescherming afhankelijk', 'vanbeschermingafhankelijk', 'conservation dependent'],
+		'NT' => ['nt', 'lr/nt', 'gevoelig', 'near threatened'],
+		'LC' => ['lc', 'lr/lc', 'veilig', 'secure', 'niet bedreigd', 'least concern'],
+		'DD' => ['dd', 'onzeker', 'datadeficient', 'data deficient']
+	];
+
+	case EX; // Extinct
+	case EW; // Extinct in the wild
+	case CR; // Critically endangered
+	case EN; // Endangered
+	case VU; // Vulnerable
+	case CD; // Conservation dependent
+	case NT; // Near threatened
+	case LC; // Least concern
+	case DD; // Data deficient
 
 	/**
 	 * Parses the given status.
@@ -31,7 +43,7 @@ enum RedListStatus
 	 * @return RedListStatus
 	 * @throws Exception When the status is invalid
 	 */
-	public static function parse(string $status): RedListStatus
+	public static function fromString(string $status): RedListStatus
 	{
 		return match($status) {
 			'EX' => RedListStatus::EX,
@@ -39,9 +51,9 @@ enum RedListStatus
 			'CR' => RedListStatus::CR,
 			'EN' => RedListStatus::EN,
 			'VU' => RedListStatus::VU,
-			'LR' => RedListStatus::LR,
-			'NT' => RedListStatus::NT,
-			'LC' => RedListStatus::LC,
+			'CD', 'LR/cd' => RedListStatus::CD,
+			'NT', 'LR/nt' => RedListStatus::NT,
+			'LC', 'LR/lc' => RedListStatus::LC,
 			'DD' => RedListStatus::DD,
 			default => throw new Exception('Invalid status')
 		};
@@ -60,10 +72,34 @@ enum RedListStatus
 			RedListStatus::CR => 'CR',
 			RedListStatus::EN => 'EN',
 			RedListStatus::VU => 'VU',
-			RedListStatus::LR => 'LR',
+			RedListStatus::CD => 'CD',
 			RedListStatus::NT => 'NT',
 			RedListStatus::LC => 'LC',
 			RedListStatus::DD => 'DD'
 		};
+	}
+
+	/**
+	 * Returns true if and only if the given status is equal to this status (Dutch-oriented comparison).
+	 *
+	 * This function was derived from the allowed values for the "status" parameter in the Taxobox template on the
+	 * Dutch Wikipedia.
+	 *
+	 * @link https://nl.wikipedia.org/wiki/Sjabloon:Taxobox
+	 *
+	 * @param string $status
+	 * @return bool
+	 */
+	public function equalsDutch(string $status): bool
+	{
+		$status = mb_strtolower($status);
+
+		foreach (self::DICT_DUTCH as $key => $translations) {
+			if (in_array($status, $translations, true)) {
+				return $this->toString() === $key;
+			}
+		}
+
+		return false;
 	}
 }

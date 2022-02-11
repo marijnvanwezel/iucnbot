@@ -26,7 +26,7 @@ use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
 class IUCNBot
 {
 	// The category which to get the articles to consider from
-	private const SPECIES_CATEGORY_PAGE = 'Categorie:Wikipedia:Diersoorten'; // nlwiki species
+	private const CATEGORY_PAGES = ['Categorie:Wikipedia:Diersoorten', 'Categorie:Wikipedia:Plantenlemma']; // nlwiki species
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
 
 	private readonly RedListClient $redListClient;
@@ -54,26 +54,25 @@ class IUCNBot
 	public function run(): void
 	{
 		$categoryTraverser = new MediaWiki\CategoryTraverser($this->mediaWikiClient, 500);
-		$speciesGenerator = $categoryTraverser->fetchPages(static::SPECIES_CATEGORY_PAGE);
 
-		foreach ($speciesGenerator as $species) {
-			try {
-				echo "... updating \e[3m$species\e[0m ..." . PHP_EOL;
+		foreach (self::CATEGORY_PAGES as $categoryPage) {
+			echo "... traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
-				$hasChanges = $this->handleSpecies($species);
-
-				if ($hasChanges) {
-					echo "... updated \e[3m$species\e[0m ..." . PHP_EOL;
-				} else {
-					echo "... already up to date, skipping \e[3m$species\e[0m ..." . PHP_EOL;
+			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
+				try {
+					echo "... updating \e[3m$species\e[0m ... ";
+					echo $this->handleSpecies($species) ? 'done.' : 'skipped.';
+				} catch (Exception $exception) {
+					echo "failed: {$exception->getMessage()}.";
+				} finally {
+					echo PHP_EOL;
 				}
-			} catch (Exception $exception) {
-				echo "... failed to update \e[3m$species\e[0m: {$exception->getMessage()} ..." . PHP_EOL;
-			} finally {
-				// Rate-limit the bot to 10 edits per minute by sleeping for 6 seconds
-				sleep(6);
+
+				sleep(15); // Rate-limit the bot to 10 edits per minute by sleeping for 6 seconds.
 			}
 		}
+
+		echo "... done ..." . PHP_EOL;
     }
 
 	/**
@@ -90,7 +89,7 @@ class IUCNBot
 		$pageContent = $page->getRevisions()->getLatest()?->getContent()->getData();
 
 		if ($pageContent === null) {
-			throw new Exception('Empty page content');
+			throw new Exception('Invalid page content');
 		}
 
 		$taxobox = $this->getTaxobox($pageContent);
@@ -103,14 +102,9 @@ class IUCNBot
 
 		$newPageContent = $this->putTaxobox($pageContent, $assessment->toDutchTaxobox());
 
-		var_dump($newPageContent);
+		// TODO: Make the edit
 
 		return true;
-
-		// TODO:
-		// - Retrieve the status
-		// - Update or add the IUCN status if necessary
-		// - Make the edit
 	}
 
 	/**
@@ -123,11 +117,24 @@ class IUCNBot
 	 */
 	private function getAssessment(string $species, array $taxoboxInfo): RedListAssessment
 	{
-		$apiResponse = $this->getAssessmentFromApi($species, $taxoboxInfo);
+		if (isset($taxoboxInfo['rl-id']) && ctype_digit($taxoboxInfo['rl-id'])) {
+			// The taxobox already contains a RedList ID
+			$apiResponse = $this->redListClient->speciesId->withID(intval($taxoboxInfo['rl-id']))->call();
+		} elseif (isset($taxoboxInfo['w-naam'])) {
+			// The taxobox has a "w-naam" (scientific name)
+			$apiResponse = $this->redListClient->species->withName($taxoboxInfo['w-naam'])->call();
+		} elseif (isset($taxoboxInfo['naam'])) {
+			// The taxobox has a "naam" (name)
+			$apiResponse = $this->redListClient->species->withName($taxoboxInfo['naam'])->call();
+		} else {
+			// Use the page name
+			$apiResponse = $this->redListClient->species->withName($species)->call();
+		}
+
 		$result = $apiResponse['result'] ?? throw new Exception('Missing "result" key.');
 
 		if (empty($result)) {
-			throw new Exception('Empty "result" array, is the species assessed?');
+			throw new Exception('Not assessed');
 		}
 
 		$taxonId = $result[0]['taxonid'] ?? throw new Exception('Missing "taxonid"');
@@ -148,37 +155,9 @@ class IUCNBot
 
 		return new RedListAssessment(
 			$taxonId,
-			RedListStatus::parse($category),
+			RedListStatus::fromString($category),
 			$publishedYear
 		);
-	}
-
-	/**
-	 * Gets the RedList assessment for the given species.
-	 *
-	 * @param string $species
-	 * @param array $taxoboxInfo
-	 * @return array
-	 */
-	private function getAssessmentFromApi(string $species, array $taxoboxInfo): array
-	{
-		if (isset($taxoboxInfo['rl-id']) && ctype_digit($taxoboxInfo['rl-id'])) {
-			// The taxobox already contains a RedList ID
-			return $this->redListClient->speciesId->withID(intval($taxoboxInfo['rl-id']))->call();
-		}
-
-		if (isset($taxoboxInfo['w-naam'])) {
-			// The taxobox has a "w-naam" (scientific name)
-			$name = $taxoboxInfo['w-naam'];
-		} elseif (isset($taxoboxInfo['naam'])) {
-			// The taxobox has a "naam" (name)
-			$name = $taxoboxInfo['naam'];
-		} else {
-			$name = $species;
-		}
-
-		// Use the page title as a fallback if none of the fields above are available
-		return $this->redListClient->species->withName($name)->call();
 	}
 
 	/**
@@ -190,13 +169,18 @@ class IUCNBot
 	 */
 	private function updateNeeded(RedListAssessment $redListAssessment, array $taxoboxInfo): bool
 	{
-		$rlId = $taxoboxInfo['rl-id'] ?? null;
-		$status = $taxoboxInfo['status'] ?? null;
-		$statusBron = $taxoboxInfo['statusbron'] ?? null;
+		if (!isset($taxoboxInfo['rl-id']) || $taxoboxInfo['rl-id'] !== strval($redListAssessment->taxonId)) {
+			return true;
+		}
 
-		return static::safe_intval($rlId) !== $redListAssessment->taxonId ||
-			$status !== $redListAssessment->status->toString() ||
-			static::safe_intval($statusBron) !== $redListAssessment->statusSource;
+		if (!isset($taxoboxInfo['status']) || $redListAssessment->status->equalsDutch($taxoboxInfo['status'])) {
+			return true;
+		}
+
+		$statusSource = $redListAssessment->statusSource !== null ?
+			strval($redListAssessment->statusSource) : null;
+
+		return ($taxoboxInfo['statusbron'] ?? null) !== $statusSource;
 	}
 
 	/**
@@ -222,12 +206,13 @@ class IUCNBot
 			throw new Exception('Could not parse taxobox');
 		}
 
-		$trimmedTaxobox = [];
+		$cleanTaxobox = [];
+
 		foreach ( $taxobox as $key => $value ) {
-			$trimmedTaxobox[trim($key)] = $this->cleanParameter($value);
+			$cleanTaxobox[trim($key)] = static::cleanParameter($value);
 		}
 
-		return $trimmedTaxobox;
+		return $cleanTaxobox;
 	}
 
 	/**
@@ -257,12 +242,10 @@ class IUCNBot
 	}
 
 	/**
-	 * Cleans up the given template parameter by stripping any newline and markup characters.
-	 *
 	 * @param string $parameter
 	 * @return string
 	 */
-	private function cleanParameter(string $parameter): string
+	private static function cleanParameter(string $parameter): string
 	{
 		// Remove any templates
 		$parameter = preg_replace('/{{.+?}}/', '', $parameter);
@@ -275,17 +258,5 @@ class IUCNBot
 
 		// Remove any link syntax
 		return trim($parameter, '[]');
-	}
-
-	/**
-	 * @param string $value
-	 * @return int|null
-	 */
-	private static function safe_intval(string $value): ?int {
-		if (!ctype_digit($value)) {
-			return null;
-		}
-
-		return intval($value);
 	}
 }

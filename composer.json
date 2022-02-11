@@ -22,7 +22,8 @@
   },
   "require": {
     "php": ">=8.1",
-    "addwiki/mediawiki-api": "^3.0"
+    "addwiki/mediawiki-api": "^3.0",
+    "ext-mbstring": "*"
   },
   "autoload": {
     "psr-4": {
