@@ -57,23 +57,24 @@ class IUCNBot
 		$categoryTraverser = new MediaWiki\CategoryTraverser($this->mediaWikiClient, 500);
 
 		foreach (self::CATEGORY_PAGES as $categoryPage) {
-			echo "... traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
+			echo "Traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
 				try {
 					echo "... updating \e[3m$species\e[0m ... ";
-					echo $this->handleSpecies($species) ? 'done.' : 'skipped.';
+					echo $this->handleSpecies($species) ? 'done' : 'skipped';
 				} catch (Exception $exception) {
-					echo "failed: {$exception->getMessage()}.";
+					echo "failed: {$exception->getMessage()}";
 				} finally {
 					echo PHP_EOL;
 				}
 
-				sleep(15); // Rate-limit the bot to 10 edits per minute by sleeping for 6 seconds.
+				// Rate-limit the bot to 4 edits per minute by sleeping for 15 seconds
+				sleep(15);
 			}
 		}
 
-		echo "... done ..." . PHP_EOL;
+		echo "... done." . PHP_EOL;
     }
 
 	/**
@@ -87,21 +88,20 @@ class IUCNBot
 	{
 		$pageGetter = $this->mediaWikiFactory->newPageGetter();
 		$page = $pageGetter->getFromTitle($species);
-		$pageContent = $page->getRevisions()->getLatest()?->getContent()->getData();
+		$oldPageContent = $page->getRevisions()->getLatest()?->getContent()->getData();
 
-		if ($pageContent === null) {
+		if ($oldPageContent === null) {
 			throw new Exception('Invalid page content');
 		}
 
-		$taxobox = $this->getTaxobox($pageContent);
+		$taxobox = $this->getTaxobox($oldPageContent);
 		$assessment = $this->getAssessment($species, $taxobox);
 
 		if (!$this->updateNeeded($assessment, $taxobox)) {
-			// Nothing to do...
 			return false;
 		}
 
-		$newPageContent = $this->putTaxobox($pageContent, $assessment->toDutchTaxobox());
+		$newPageContent = $this->putTaxobox($oldPageContent, $assessment->toDutchTaxobox());
 
 		// TODO: Make the edit
 
@@ -120,19 +120,19 @@ class IUCNBot
 	{
 		if (isset($taxoboxInfo['rl-id']) && ctype_digit($taxoboxInfo['rl-id'])) {
 			// The taxobox already contains a RedList ID
-			$apiResponse = $this->redListClient->speciesId->withID(intval($taxoboxInfo['rl-id']))->call();
+			$response = $this->redListClient->speciesId->withID(intval($taxoboxInfo['rl-id']))->call();
 		} elseif (isset($taxoboxInfo['w-naam'])) {
 			// The taxobox has a "w-naam" (scientific name)
-			$apiResponse = $this->redListClient->species->withName($taxoboxInfo['w-naam'])->call();
+			$response = $this->redListClient->species->withName($taxoboxInfo['w-naam'])->call();
 		} elseif (isset($taxoboxInfo['naam'])) {
 			// The taxobox has a "naam" (name)
-			$apiResponse = $this->redListClient->species->withName($taxoboxInfo['naam'])->call();
+			$response = $this->redListClient->species->withName($taxoboxInfo['naam'])->call();
 		} else {
 			// Use the page name
-			$apiResponse = $this->redListClient->species->withName($species)->call();
+			$response = $this->redListClient->species->withName($species)->call();
 		}
 
-		$result = $apiResponse['result'] ?? throw new Exception('Missing "result" key.');
+		$result = $response['result'] ?? throw new Exception('Missing "result" key.');
 
 		if (empty($result)) {
 			throw new Exception('Not assessed');
@@ -154,9 +154,11 @@ class IUCNBot
 			throw new Exception('Invalid "published_year"');
 		}
 
+		$status = RedListStatus::fromString($category);
+
 		return new RedListAssessment(
 			$taxonId,
-			RedListStatus::fromString($category),
+			$status,
 			$publishedYear
 		);
 	}
@@ -164,24 +166,24 @@ class IUCNBot
 	/**
 	 * Returns true if and only if the taxobox needs updating.
 	 *
-	 * @param RedListAssessment $redListAssessment
-	 * @param array $taxoboxInfo
+	 * @param RedListAssessment $assessment
+	 * @param array $taxobox
 	 * @return bool
 	 */
-	private function updateNeeded(RedListAssessment $redListAssessment, array $taxoboxInfo): bool
+	private function updateNeeded(RedListAssessment $assessment, array $taxobox): bool
 	{
-		if (!isset($taxoboxInfo['rl-id']) || $taxoboxInfo['rl-id'] !== strval($redListAssessment->taxonId)) {
+		if (!isset($taxobox['rl-id']) || $taxobox['rl-id'] !== strval($assessment->taxonId)) {
 			return true;
 		}
 
-		if (!isset($taxoboxInfo['status']) || $redListAssessment->status->equalsDutch($taxoboxInfo['status'])) {
+		if (!isset($taxobox['status']) || $assessment->status->equalsDutch($taxobox['status'])) {
 			return true;
 		}
 
-		$statusSource = $redListAssessment->statusSource !== null ?
-			strval($redListAssessment->statusSource) : null;
+		$statusSource = $assessment->statusSource !== null ?
+			strval($assessment->statusSource) : null;
 
-		return ($taxoboxInfo['statusbron'] ?? null) !== $statusSource;
+		return ($taxobox['statusbron'] ?? null) !== $statusSource;
 	}
 
 	/**
