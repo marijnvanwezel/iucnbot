@@ -10,8 +10,6 @@
 
 namespace MarijnVanWezel\IUCNBot\RedList;
 
-use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
-
 /**
  * Data-class containing information about the assessment of a species.
  */
@@ -21,7 +19,9 @@ final class RedListAssessment
 		public readonly int $taxonId,
 		public readonly RedListStatus $status,
 		public readonly ?int $statusSource = null
-	) {}
+	)
+	{
+	}
 
 	/**
 	 * Converts the assessment to a taxobox info array for the Dutch Wikipedia.

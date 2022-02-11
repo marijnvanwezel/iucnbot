@@ -45,7 +45,7 @@ enum RedListStatus
 	 */
 	public static function fromString(string $status): RedListStatus
 	{
-		return match($status) {
+		return match ($status) {
 			'EX' => RedListStatus::EX,
 			'EW' => RedListStatus::EW,
 			'CR' => RedListStatus::CR,
@@ -56,26 +56,6 @@ enum RedListStatus
 			'LC', 'LR/lc' => RedListStatus::LC,
 			'DD' => RedListStatus::DD,
 			default => throw new Exception('Invalid status')
-		};
-	}
-
-	/**
-	 * Returns the name of this status.
-	 *
-	 * @return string
-	 */
-	public function toString(): string
-	{
-		return match($this) {
-			RedListStatus::EX => 'EX',
-			RedListStatus::EW => 'EW',
-			RedListStatus::CR => 'CR',
-			RedListStatus::EN => 'EN',
-			RedListStatus::VU => 'VU',
-			RedListStatus::CD => 'CD',
-			RedListStatus::NT => 'NT',
-			RedListStatus::LC => 'LC',
-			RedListStatus::DD => 'DD'
 		};
 	}
 
@@ -101,5 +81,25 @@ enum RedListStatus
 		}
 
 		return false;
+	}
+
+	/**
+	 * Returns the name of this status.
+	 *
+	 * @return string
+	 */
+	public function toString(): string
+	{
+		return match ($this) {
+			RedListStatus::EX => 'EX',
+			RedListStatus::EW => 'EW',
+			RedListStatus::CR => 'CR',
+			RedListStatus::EN => 'EN',
+			RedListStatus::VU => 'VU',
+			RedListStatus::CD => 'CD',
+			RedListStatus::NT => 'NT',
+			RedListStatus::LC => 'LC',
+			RedListStatus::DD => 'DD'
+		};
 	}
 }

@@ -35,18 +35,35 @@ abstract class Endpoint
 	 *
 	 * @return array
 	 */
-	public function call(): array {
+	public function call(): array
+	{
 		$uri = $this->buildRequestURI();
 
 		try {
 			$curl = curl_init($uri);
 			curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
 			$result = curl_exec($curl);
-		} finallY {
+		} finally {
 			curl_close($curl);
 		}
 
 		return json_decode($result, true);
+	}
+
+	/**
+	 * Builds the request URI from the parameters and the endpoint.
+	 *
+	 * @return string
+	 */
+	private function buildRequestURI(): string
+	{
+		$uri = sprintf(static::API_ENDPOINT . '%s?token=%s', $this->getEndpoint(), $this->apiToken);
+
+		foreach ($this->getParameters() as $name => $value) {
+			$uri = str_replace(":$name", strval($value), $uri);
+		}
+
+		return $uri;
 	}
 
 	/**
@@ -64,20 +81,4 @@ abstract class Endpoint
 	 * @return string[]
 	 */
 	abstract protected function getParameters(): array;
-
-	/**
-	 * Builds the request URI from the parameters and the endpoint.
-	 *
-	 * @return string
-	 */
-	private function buildRequestURI(): string
-	{
-		$uri = sprintf(static::API_ENDPOINT . '%s?token=%s', $this->getEndpoint(), $this->apiToken);
-
-		foreach ($this->getParameters() as $name => $value) {
-			$uri = str_replace(":$name", strval($value), $uri);
-		}
-
-		return $uri;
-	}
 }

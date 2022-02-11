@@ -1,5 +1,4 @@
 <?php declare(strict_types=1);
-
 /**
  * This file is part of marijnvanwezel/iucnbot.
  *
@@ -11,9 +10,7 @@
 
 namespace MarijnVanWezel\IUCNBot;
 
-ini_set("xdebug.var_display_max_children", '-1');
-ini_set("xdebug.var_display_max_data", '-1');
-ini_set("xdebug.var_display_max_depth", '-1');
+// Required for "escapeshellarg" to work with Unicode strings
 setlocale(LC_CTYPE, "UTF8", "en_US.UTF-8");
 
 use Addwiki\Mediawiki\Api\Client\Action\ActionApi;
@@ -38,7 +35,8 @@ class IUCNBot
 		string $redListToken,
 		string $mediaWikiUser,
 		string $mediaWikiPassword
-	) {
+	)
+	{
 		$this->redListClient = new RedListClient($redListToken);
 		$this->mediaWikiClient = new ActionApi(
 			self::MEDIAWIKI_ENDPOINT,
@@ -75,7 +73,7 @@ class IUCNBot
 		}
 
 		echo "... done." . PHP_EOL;
-    }
+	}
 
 	/**
 	 * Handle update of a single species.
@@ -106,6 +104,57 @@ class IUCNBot
 		// TODO: Make the edit
 
 		return true;
+	}
+
+	/**
+	 * Parses the given page and returns the taxobox info.
+	 *
+	 * @param string $wikitext
+	 * @return array
+	 * @throws Exception
+	 */
+	private function getTaxobox(string $wikitext): array
+	{
+		$command = __DIR__ . '/mwparserfromhell/get_taxobox_info ' . escapeshellarg($wikitext);
+
+		exec($command, $shellOutput, $resultCode);
+
+		if ($resultCode !== 0 || empty($shellOutput) || !isset($shellOutput[0])) {
+			throw new Exception('Could not parse taxobox');
+		}
+
+		$taxobox = json_decode(implode("\n", $shellOutput), true);
+
+		if ($taxobox === null) {
+			throw new Exception('Could not parse taxobox');
+		}
+
+		$cleanTaxobox = [];
+
+		foreach ($taxobox as $key => $value) {
+			$cleanTaxobox[trim($key)] = static::cleanParameter($value);
+		}
+
+		return $cleanTaxobox;
+	}
+
+	/**
+	 * @param string $parameter
+	 * @return string
+	 */
+	private static function cleanParameter(string $parameter): string
+	{
+		// Remove any templates
+		$parameter = preg_replace('/{{.+?}}/', '', $parameter);
+
+		// Remove any whitespace
+		$parameter = trim($parameter);
+
+		// Remove any apostrophes
+		$parameter = trim($parameter, '\'"');
+
+		// Remove any link syntax
+		return trim($parameter, '[]');
 	}
 
 	/**
@@ -187,38 +236,6 @@ class IUCNBot
 	}
 
 	/**
-	 * Parses the given page and returns the taxobox info.
-	 *
-	 * @param string $wikitext
-	 * @return array
-	 * @throws Exception
-	 */
-	private function getTaxobox(string $wikitext): array
-	{
-		$command = __DIR__ . '/mwparserfromhell/get_taxobox_info ' . escapeshellarg($wikitext);
-
-		exec($command, $shellOutput, $resultCode);
-
-		if ($resultCode !== 0 || empty($shellOutput) || !isset($shellOutput[0])) {
-			throw new Exception('Could not parse taxobox');
-		}
-
-		$taxobox = json_decode(implode("\n", $shellOutput), true);
-
-		if ($taxobox === null) {
-			throw new Exception('Could not parse taxobox');
-		}
-
-		$cleanTaxobox = [];
-
-		foreach ( $taxobox as $key => $value ) {
-			$cleanTaxobox[trim($key)] = static::cleanParameter($value);
-		}
-
-		return $cleanTaxobox;
-	}
-
-	/**
 	 * Parses the given page content and updates the taxobox with the given taxobox information.
 	 *
 	 * @note The parameters of the existing taxobox are not replaced with the given taxobox info. Parameters can only be
@@ -242,24 +259,5 @@ class IUCNBot
 		}
 
 		return implode("\n", $shellOutput);
-	}
-
-	/**
-	 * @param string $parameter
-	 * @return string
-	 */
-	private static function cleanParameter(string $parameter): string
-	{
-		// Remove any templates
-		$parameter = preg_replace('/{{.+?}}/', '', $parameter);
-
-		// Remove any whitespace
-		$parameter = trim($parameter);
-
-		// Remove any apostrophes
-		$parameter = trim($parameter, '\'"');
-
-		// Remove any link syntax
-		return trim($parameter, '[]');
 	}
 }
