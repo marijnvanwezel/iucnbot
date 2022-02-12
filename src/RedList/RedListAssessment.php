@@ -21,7 +21,7 @@ final class RedListAssessment
 	public function __construct(
 		public readonly int $taxonId,
 		public readonly RedListStatus $status,
-		public readonly ?int $statusSource = null
+		public readonly ?int $yearAssessed = null
 	)
 	{
 	}
@@ -32,12 +32,12 @@ final class RedListAssessment
 	 * @link https://nl.wikipedia.org/wiki/Sjabloon:Taxobox
 	 * @return string[]
 	 */
-	#[Pure] #[ArrayShape(['rl-id' => "string", 'status' => "string", 'statusbron' => "string"])] public function toDutchTaxobox(): array
+	#[Pure] #[ArrayShape(['rl-id' => "string", 'status' => "string", 'statusbron' => "string"])] public function toTaxobox(): array
 	{
 		return [
 			'rl-id' => strval($this->taxonId),
 			'status' => $this->status->toString(),
-			'statusbron' => strval($this->statusSource ?? '')
+			'statusbron' => strval($this->yearAssessed ?? '')
 		];
 	}
 }

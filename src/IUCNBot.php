@@ -20,8 +20,9 @@ use Addwiki\Mediawiki\Api\Service\PageGetter;
 use Addwiki\Mediawiki\Api\Service\RevisionSaver;
 use Addwiki\Mediawiki\DataModel\Content;
 use Addwiki\Mediawiki\DataModel\EditInfo;
-use Addwiki\Mediawiki\DataModel\Page;
+use Addwiki\Mediawiki\DataModel\PageIdentifier;
 use Addwiki\Mediawiki\DataModel\Revision;
+use DateTime;
 use Exception;
 use JetBrains\PhpStorm\Pure;
 use MarijnVanWezel\IUCNBot\MediaWiki\CategoryTraverser;
@@ -37,6 +38,7 @@ class IUCNBot
 		'Categorie:Wikipedia:Plantenlemma'
 	];
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
+	private const SUMMARY = 'Bijwerken/toevoegen status van de Rode Lijst van de IUCN';
 
 	private readonly RedListClient $redListClient;
 	private readonly ActionApi $mediaWikiClient;
@@ -72,16 +74,22 @@ class IUCNBot
 			echo "Traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
+				$pageUpdated = false;
+
 				try {
 					echo "... Updating \e[3m$species\e[0m ... ";
-					echo $this->handleSpecies($species) ? "\e[32mDone\e[0m" : "\e[33mSkipped\e[0m";
+
+					$pageUpdated = $this->handleSpecies($species);
+
+					echo $pageUpdated ? "\e[32mDone\e[0m" : "\e[33mSkipped\e[0m";
 				} catch (Exception $exception) {
 					echo "\e[31m{$exception->getMessage()}\e[0m";
 				} finally {
 					echo PHP_EOL;
 				}
 
-				sleep(10);
+				// Always have some delay between calls
+				$pageUpdated ? sleep(10) : sleep(5);
 			}
 		}
 
@@ -98,23 +106,60 @@ class IUCNBot
 	private function handleSpecies(string $species): bool
 	{
 		$page = $this->pageGetter->getFromTitle($species);
-		$pageContent = $page->getRevisions()->getLatest()?->getContent()->getData() ?? throw new Exception('Could not retrieve page content');
+		$pageContent = $page->getRevisions()->getLatest()?->getContent()->getData() ??
+			throw new Exception('Could not retrieve page content');
+
+		if (!$this->isEditAllowed($pageContent)) {
+			return false;
+		}
+
 		$taxobox = $this->getTaxobox($pageContent);
+
+		if ($this->isExtinct($taxobox)) {
+			return false;
+		}
+
 		$assessment = $this->getAssessment($species, $taxobox);
 
-		if (!$this->isTaxoboxOutdated($assessment, $taxobox) || !$this->isEditAllowed($pageContent)) {
-			// The taxobox is already up-to-date, or editing the page is prohibited
+		if (!$this->isTaxoboxOutdated($assessment, $taxobox)) {
 			return false;
 		}
 
-		$newContent = $this->putTaxobox($pageContent, $assessment->toDutchTaxobox());
+		$this->storeNewContent(
+			$page->getPageIdentifier(),
+			$this->updatePageWithAssessment($pageContent, $assessment)
+		);
 
-		if ($newContent === $pageContent) {
-			return false;
-		}
+		return true;
+	}
 
-		if (!$this->dryRun) {
-			$this->updatePage($page, $newContent);
+	/**
+	 * This page returns true if and only if the page is allowed to be edited.
+	 *
+	 * There are various reasons why a page should not be changed, such as when it contains a "nobots" template or
+	 * when it is still being worked on.
+	 *
+	 * @param string $wikitext
+	 * @return bool
+	 */
+	public static function isEditAllowed(string $wikitext): bool
+	{
+		$disallowRegex = [
+			'/{{\s*nobots/i', // {{nobots}}
+			'/{{\s*bots\s*\|\s*deny\s*=\s*all/i', // {{bots|deny=all}}
+			'/{{\s*nuweg/i', // {{nuweg}}
+			'/{{\s*speedy/i', // {{speedy}}
+			'/{{\s*delete/i', // {{delete}}
+			'/{{\s*meebezig/i', // {{meebezig}}
+			'/{{\s*mee bezig/i', // {{mee bezig}}
+			'/{{\s*wiu/i', // {{wiu}}
+			'/{{\s*wiu2/i' // {{wiu2}}
+		];
+
+		foreach ($disallowRegex as $regex) {
+			if (preg_match($regex, $wikitext) === 1) {
+				return false;
+			}
 		}
 
 		return true;
@@ -170,6 +215,24 @@ class IUCNBot
 	}
 
 	/**
+	 * Returns true if the given taxobox describes a species that is extinct.
+	 *
+	 * @param array $taxobox
+	 * @return bool
+	 */
+	#[Pure] public static function isExtinct(array $taxobox): bool
+	{
+		if (!isset($taxobox['status'])) {
+			return false;
+		}
+
+		/** @note The status "fossil" is not an official RedList status and is therefore treated as a special case */
+
+		return RedListStatus::EX->equals($taxobox['status']) ||
+			in_array(mb_strtolower($taxobox['status']), ['fossiel', 'fossil']);
+	}
+
+	/**
 	 * Queries the RedList API and parses the result.
 	 *
 	 * @param string $species
@@ -199,7 +262,7 @@ class IUCNBot
 
 		$taxonId = $response['result'][0]['taxonid'] ?? throw new Exception('Missing "taxonid"');
 		$category = $response['result'][0]['category'] ?? throw new Exception('Missing "category"');
-		$publishedYear = $response['result'][0]['published_year'] ?? null;
+		$assessmentDate = $response['result'][0]['assessment_date'] ?? null;
 
 		if (!is_int($taxonId)) {
 			throw new Exception('Invalid "taxonid"');
@@ -209,14 +272,25 @@ class IUCNBot
 			throw new Exception('Invalid "category"');
 		}
 
-		if ($publishedYear !== null && !is_int($publishedYear)) {
-			throw new Exception('Invalid "published_year"');
+		if ($assessmentDate !== null && !is_string($assessmentDate)) {
+			throw new Exception('Invalid "assessment_date"');
+		}
+
+		if ($assessmentDate !== null) {
+			$dateTime = DateTime::createFromFormat('Y-m-d', $assessmentDate);
+			$yearAssessed = intval($dateTime->format('Y'));
+
+			if ($yearAssessed < 1948 || $yearAssessed > intval(date("Y"))) {
+				throw new Exception('Invalid "assessment_date"');
+			}
+		} else {
+			$yearAssessed = null;
 		}
 
 		return new RedListAssessment(
 			$taxonId,
 			RedListStatus::fromString($category),
-			$publishedYear
+			$yearAssessed
 		);
 	}
 
@@ -233,46 +307,57 @@ class IUCNBot
 			return true;
 		}
 
-		if (!isset($taxobox['status']) || !$assessment->status->equalsDutch($taxobox['status'])) {
+		if (!isset($taxobox['status']) || !$assessment->status->equals($taxobox['status'])) {
 			return true;
 		}
 
-		$assessmentStatusSource = $assessment->statusSource !== null ? strval($assessment->statusSource) : null;
+		$assessmentStatusSource = $assessment->yearAssessed !== null ? strval($assessment->yearAssessed) : null;
 		$taxoboxStatusSource = isset($taxobox['statusbron']) ? strval($taxobox['statusbron']) : null;
 
 		return $assessmentStatusSource !== $taxoboxStatusSource;
 	}
 
 	/**
-	 * This page returns true if and only if the page is allowed to be edited.
+	 * Update the page with the given content.
 	 *
-	 * There are various reasons why a page should not be changed, such as when it contains a "nobots" template or
-	 * when it is still being worked on.
-	 *
-	 * @param string $wikitext
-	 * @return bool
+	 * @param PageIdentifier $pageIdentifier
+	 * @param string $newContent
+	 * @throws Exception
 	 */
-	public static function isEditAllowed(string $wikitext): bool
+	private function storeNewContent(PageIdentifier $pageIdentifier, string $newContent): void
 	{
-		$disallowRegex = [
-			'/{{\s*nobots/i', // {{nobots}}
-			'/{{\s*bots\s*\|\s*deny\s*=\s*all/i', // {{bots|deny=all}}
-			'/{{\s*nuweg/i', // {{nuweg}}
-			'/{{\s*speedy/i', // {{speedy}}
-			'/{{\s*delete/i', // {{delete}}
-			'/{{\s*meebezig/i', // {{meebezig}}
-			'/{{\s*mee bezig/i', // {{mee bezig}}
-			'/{{\s*wiu/i', // {{wiu}}
-			'/{{\s*wiu2/i' // {{wiu2}}
-		];
-
-		foreach ($disallowRegex as $regex) {
-			if (preg_match($regex, $wikitext) === 1) {
-				return false;
-			}
+		if (empty(trim($newContent))) {
+			// Sanity check
+			throw new Exception('Tried to save empty page');
 		}
 
-		return true;
+		$revision = new Revision(new Content($newContent), $pageIdentifier);
+		$editInfo = new EditInfo(self::SUMMARY, false, true);
+
+		if ($this->dryRun) {
+			// If this is a dry-run, don't actually save the page
+			return;
+		}
+
+		$success = $this->revisionSaver->save($revision, $editInfo);
+
+		if (!$success) {
+			throw new Exception('Failed to save revision');
+		}
+	}
+
+	/**
+	 * Updates the given wikitext with the given assessment.
+	 *
+	 * @param mixed $pageContent
+	 * @param RedListAssessment $assessment
+	 * @return string
+	 * @throws Exception
+	 */
+	public static function updatePageWithAssessment(string $pageContent, RedListAssessment $assessment): string
+	{
+		$pageContent = static::putTaxobox($pageContent, $assessment);
+		return static::updateCategory($pageContent, $assessment->status);
 	}
 
 	/**
@@ -282,16 +367,16 @@ class IUCNBot
 	 * added or altered. If a parameter does not exist in $taxoboxInfo, it will not be updated/removed on the page.
 	 *
 	 * @param string $wikitext
-	 * @param array $taxoboxInfo
+	 * @param RedListAssessment $assessment
 	 * @return string The resulting page
 	 *
 	 * @throws Exception
 	 */
-	public static function putTaxobox(string $wikitext, array $taxoboxInfo): string
+	public static function putTaxobox(string $wikitext, RedListAssessment $assessment): string
 	{
-		$taxoboxInfo = json_encode($taxoboxInfo, JSON_THROW_ON_ERROR);
 		$command = __DIR__ . '/mwparserfromhell/put_taxobox_info ' .
-			escapeshellarg($wikitext) . ' ' . escapeshellarg($taxoboxInfo);
+			escapeshellarg($wikitext) . ' ' .
+			escapeshellarg(json_encode($assessment->toTaxobox(), JSON_THROW_ON_ERROR));
 
 		exec($command, $shellOutput, $resultCode);
 
@@ -310,25 +395,20 @@ class IUCNBot
 	}
 
 	/**
-	 * Update the page with the given content.
+	 * Updates the categories on the page if necessary.
 	 *
-	 * @param Page $page
-	 * @param string $newContent
-	 * @throws Exception
+	 * @param string $wikitext
+	 * @param RedListStatus $status
+	 * @return string
 	 */
-	private function updatePage(Page $page, string $newContent): void
+	public static function updateCategory(string $wikitext, RedListStatus $status): string
 	{
-		if (empty(trim($newContent))) {
-			// Sanity check
-			throw new Exception('Tried to save empty page');
-		}
+		// This regex matches inclusions of existing categories
+		$regex = '/\[\[\s*Categor(ie|y):IUCN-status (bedreigd|van bescherming afhankelijk|gevoelig|kritiek|kwetsbaar|niet bedreigd|niet geëvalueerd|onzeker|uitgestorven|uitgestorven in het wild)\s*\]\]\s*\n?/i';
+		$wikitext = preg_replace($regex, '', $wikitext);
 
-		$content = new Content($newContent);
-		$revision = new Revision($content, $page->getPageIdentifier());
-		$editInfo = new EditInfo('Bijwerken/toevoegen status van de Rode Lijst van de IUCN', false, true);
+		$newCategory = sprintf('[[%s]]', $status->toCategory());
 
-		if (!$this->revisionSaver->save($revision, $editInfo)) {
-			throw new Exception('Failed to save revision');
-		}
+		return rtrim($wikitext, "\n") . "\n" . $newCategory;
 	}
 }

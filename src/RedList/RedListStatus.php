@@ -71,23 +71,11 @@ enum RedListStatus
 	 * @param string $status
 	 * @return bool
 	 */
-	#[Pure] public function equalsDutch(string $status): bool
-	{
-		return $this->equals($status, self::DICT_DUTCH);
-	}
-
-	/**
-	 * Returns true if and only if the given status is equal to this status according to the given dictionary.
-	 *
-	 * @param string $status
-	 * @param array $dict
-	 * @return bool
-	 */
-	#[Pure] public function equals(string $status, array $dict): bool
+	#[Pure] public function equals(string $status): bool
 	{
 		$status = mb_strtolower($status);
 
-		foreach ($dict as $key => $translations) {
+		foreach (self::DICT_DUTCH as $key => $translations) {
 			if (in_array($status, $translations, true)) {
 				return $this->toString() === $key;
 			}
@@ -113,6 +101,26 @@ enum RedListStatus
 			RedListStatus::NT => 'NT',
 			RedListStatus::LC => 'LC',
 			RedListStatus::DD => 'DD'
+		};
+	}
+
+	/**
+	 * Returns the category for this status (Dutch Wikipedia).
+	 *
+	 * @return string
+	 */
+	public function toCategory(): string
+	{
+		return match ($this) {
+			RedListStatus::EX => 'Categorie:IUCN-status uitgestorven',
+			RedListStatus::EW => 'Categorie:IUCN-status uitgestorven in het wild',
+			RedListStatus::CR => 'Categorie:IUCN-status kritiek',
+			RedListStatus::EN => 'Categorie:IUCN-status bedreigd',
+			RedListStatus::VU => 'Categorie:IUCN-status kwetsbaar',
+			RedListStatus::CD => 'Categorie:IUCN-status van bescherming afhankelijk',
+			RedListStatus::NT => 'Categorie:IUCN-status gevoelig',
+			RedListStatus::LC => 'Categorie:IUCN-status niet bedreigd',
+			RedListStatus::DD => 'Categorie:IUCN-status onzeker'
 		};
 	}
 }

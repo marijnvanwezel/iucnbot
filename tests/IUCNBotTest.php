@@ -67,9 +67,9 @@ class IUCNBotTest extends TestCase
 	/**
 	 * @dataProvider providePutTaxoboxData
 	 */
-	public function testPutTaxobox(string $wikitext, array $taxoboxInfo, string $expected): void
+	public function testPutTaxobox(string $wikitext, RedListAssessment $assessment, string $expected): void
 	{
-		$this->assertSame($expected, IUCNBot::putTaxobox($wikitext, $taxoboxInfo));
+		$this->assertSame($expected, IUCNBot::putTaxobox($wikitext, $assessment));
 	}
 
 	/**
@@ -80,7 +80,33 @@ class IUCNBotTest extends TestCase
 		$this->expectException(Exception::class);
 		$this->expectExceptionMessage('Could not update taxobox');
 
-		IUCNBot::putTaxobox($wikitext, []);
+		IUCNBot::putTaxobox($wikitext, new RedListAssessment(0, RedListStatus::DD));
+	}
+
+	/**
+	 * @dataProvider provideUpdateCategoryData
+	 */
+	public function testUpdateCategory(string $wikitext, RedListStatus $assessment, string $expected): void
+	{
+		$this->assertSame($expected, IUCNBot::updateCategory($wikitext, $assessment));
+	}
+
+	public function testUpdatePageFullArticle(): void
+	{
+		$dodo = file_get_contents(__DIR__ . '/dodo.txt');
+		$dodoUpdated = file_get_contents(__DIR__ . '/dodo_new_assessment.txt');
+
+		$assessment = new RedListAssessment(420, RedListStatus::LC, 2022);
+
+		$this->assertSame($dodoUpdated, IUCNBot::updatePageWithAssessment($dodo, $assessment));
+	}
+
+	/**
+	 * @dataProvider provideIsExtinctData
+	 */
+	public function testIsExtinct(array $taxobox, bool $expected): void
+	{
+		$this->assertSame($expected, IUCNBot::isExtinct($taxobox));
 	}
 
 	public function provideGetTaxoboxData(): array
@@ -90,14 +116,14 @@ class IUCNBotTest extends TestCase
 			['{{taxobox}}', []],
 			['{{Taxobox vogel}}', []],
 			['{{Taxobox vogel|soort=dier}}', ['soort' => 'dier']],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox vogel|
 			soort = dier
 			|rl-id=   19298
 			|   w-naam = ''[[Dodo]]'' {{†}}
 			}}
 			WIKITEXT, ['soort' => 'dier', 'rl-id' => '19298', 'w-naam' => 'Dodo']],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox vogel|
 			soort = dier
 			|
@@ -105,10 +131,10 @@ class IUCNBotTest extends TestCase
 			|   w-naam     = '''[[Dodo]]''' {{†}} {{Uitgestorven}}|vogel
 			}}
 			WIKITEXT, ['soort' => 'dier', 'rl-id' => '19298', 'w-naam' => 'Dodo', 1 => 'vogel']],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Sjabloon:Taxobox vogel|soort=dier}}
 			WIKITEXT, ['soort' => 'dier']],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{ Template:Taxobox vogel|soort=dier
 			}}
 			WIKITEXT, ['soort' => 'dier']],
@@ -497,7 +523,7 @@ class IUCNBotTest extends TestCase
 			['{{meebezig}}, De "dodo" is een vogel', false],
 			['{{ meebezig }}', false],
 			['{{ bots | deny = all}}', false],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{
 			bots
 			|deny = all}}
@@ -514,71 +540,81 @@ class IUCNBotTest extends TestCase
 	public function providePutTaxoboxData(): array
 	{
 		return [
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			}}
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
-			|rl-id=2022}}
+			|rl-id=2022|status=VU|statusbron=}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			|soort=dier
 			}}
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
 			|soort=dier
 			|rl-id=2022
+			|status=VU
+			|statusbron=
 			}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			| soort = dier
 			}}
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
 			| soort = dier
 			| rl-id = 2022
+			| status = VU
+			| statusbron =
 			}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
 			}}
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
+			| status =VU
+			| statusbron =
 			}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox dier
 			| soort =dier
 			| rl-id =2022
 			}}
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox dier
 			| soort =dier
 			| rl-id =2022
+			| status =VU
+			| statusbron =
 			}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
 			}}
 			
 			Een dier is een dier.
-			WIKITEXT, ['rl-id' => 2022], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
+			| status =VU
+			| statusbron =
 			}}
 			
 			Een dier is een dier.
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
@@ -587,12 +623,13 @@ class IUCNBotTest extends TestCase
 			}}
 			
 			Een dier is een dier.
-			WIKITEXT, ['rl-id' => 2022, 'status' => 'VU'], <<<WIKITEXT
+			WIKITEXT, new RedListAssessment(2022, RedListStatus::VU), <<<'WIKITEXT'
 			{{Taxobox
 			| soort =dier
 			| rl-id =2022
 			
 			| status = VU
+			| statusbron =
 			}}
 			
 			Een dier is een dier.
@@ -603,7 +640,7 @@ class IUCNBotTest extends TestCase
 	public function providePutTaxoboxInvalidData(): array
 	{
 		return [
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxobo
 			| soort =dier
 			| rl-id =2022
@@ -613,7 +650,7 @@ class IUCNBotTest extends TestCase
 			
 			Een dier is een dier.
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{Taxoboxx
 			| soort =dier
 			| rl-id =2022
@@ -623,12 +660,213 @@ class IUCNBotTest extends TestCase
 			
 			Een dier is een dier.
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			{{}}
 			WIKITEXT],
-			[<<<WIKITEXT
+			[<<<'WIKITEXT'
 			
 			WIKITEXT],
+		];
+	}
+
+	public function provideUpdateCategoryData(): array
+	{
+		return [
+			[
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]]
+				[[Categorie:IUCN-status niet bedreigd]]
+				WIKITEXT,
+				RedListStatus::VU,
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]]
+				[[Categorie:IUCN-status kwetsbaar]]
+				WIKITEXT
+			],
+			[
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]]
+				[[Categorie:IUCN-status niet bedreigd]]
+				[[Categorie:Test2]]
+				WIKITEXT,
+				RedListStatus::VU,
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]]
+				[[Categorie:Test2]]
+				[[Categorie:IUCN-status kwetsbaar]]
+				WIKITEXT,
+			],
+			[
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]][[Categorie:IUCN-status bedreigd]][[Categorie:Test2]]
+				WIKITEXT,
+				RedListStatus::VU,
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]][[Categorie:Test2]]
+				[[Categorie:IUCN-status kwetsbaar]]
+				WIKITEXT,
+			],
+			[
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:IUCN-status bedreigd]]
+				
+				[[Categorie:Test]][[Categorie:Test2]]
+				WIKITEXT,
+				RedListStatus::VU,
+				<<<'WIKITEXT'
+				{{Taxobox
+				| soort =dier
+				| rl-id =2022
+				| status = KWETSBAAR
+				}}
+				
+				Een dier is een dier.
+				
+				[[Categorie:Test]][[Categorie:Test2]]
+				[[Categorie:IUCN-status kwetsbaar]]
+				WIKITEXT
+			]
+		];
+	}
+
+	public function provideIsExtinctData(): array
+	{
+		return [
+			[
+				[
+					'status' => 'fossil'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'Fossil'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'fossiel'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'Fossiel'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'uitgestorven'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'Uitgestorven'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'ex'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'EX'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'extinct'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'Extinct'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'fossil',
+					'some' => 'other property'
+				],
+				true
+			],
+			[
+				[
+					'status' => 'endangered'
+				],
+				false
+			],
+			[
+				[
+					'status' => 'vulnerable'
+				],
+				false
+			],
 		];
 	}
 }
