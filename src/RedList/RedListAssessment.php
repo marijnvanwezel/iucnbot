@@ -10,6 +10,9 @@
 
 namespace MarijnVanWezel\IUCNBot\RedList;
 
+use JetBrains\PhpStorm\ArrayShape;
+use JetBrains\PhpStorm\Pure;
+
 /**
  * Data-class containing information about the assessment of a species.
  */
@@ -27,14 +30,14 @@ final class RedListAssessment
 	 * Converts the assessment to a taxobox info array for the Dutch Wikipedia.
 	 *
 	 * @link https://nl.wikipedia.org/wiki/Sjabloon:Taxobox
-	 * @return array
+	 * @return string[]
 	 */
-	public function toDutchTaxobox(): array
+	#[Pure] #[ArrayShape(['rl-id' => "string", 'status' => "string", 'statusbron' => "string"])] public function toDutchTaxobox(): array
 	{
 		return [
-			'rl-id' => $this->taxonId,
+			'rl-id' => strval($this->taxonId),
 			'status' => $this->status->toString(),
-			'statusbron' => $this->statusSource ?? ''
+			'statusbron' => strval($this->statusSource ?? '')
 		];
 	}
 }

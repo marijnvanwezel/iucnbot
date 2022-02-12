@@ -16,7 +16,15 @@ setlocale(LC_CTYPE, "UTF8", "en_US.UTF-8");
 use Addwiki\Mediawiki\Api\Client\Action\ActionApi;
 use Addwiki\Mediawiki\Api\Client\Auth\UserAndPassword;
 use Addwiki\Mediawiki\Api\MediawikiFactory;
+use Addwiki\Mediawiki\Api\Service\PageGetter;
+use Addwiki\Mediawiki\Api\Service\RevisionSaver;
+use Addwiki\Mediawiki\DataModel\Content;
+use Addwiki\Mediawiki\DataModel\EditInfo;
+use Addwiki\Mediawiki\DataModel\Page;
+use Addwiki\Mediawiki\DataModel\Revision;
 use Exception;
+use JetBrains\PhpStorm\Pure;
+use MarijnVanWezel\IUCNBot\MediaWiki\CategoryTraverser;
 use MarijnVanWezel\IUCNBot\RedList\RedListAssessment;
 use MarijnVanWezel\IUCNBot\RedList\RedListClient;
 use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
@@ -24,25 +32,29 @@ use MarijnVanWezel\IUCNBot\RedList\RedListStatus;
 class IUCNBot
 {
 	// The category which to get the articles to consider from
-	private const CATEGORY_PAGES = ['Categorie:Wikipedia:Diersoorten', 'Categorie:Wikipedia:Plantenlemma']; // nlwiki species
+	private const CATEGORY_PAGES = [
+		'Categorie:Wikipedia:Diersoorten',
+		'Categorie:Wikipedia:Plantenlemma'
+	];
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
 
 	private readonly RedListClient $redListClient;
 	private readonly ActionApi $mediaWikiClient;
-	private readonly MediawikiFactory $mediaWikiFactory;
+	private readonly PageGetter $pageGetter;
+	private readonly RevisionSaver $revisionSaver;
 
-	public function __construct(
-		string $redListToken,
-		string $mediaWikiUser,
-		string $mediaWikiPassword
-	)
+	public function __construct(string $redListToken, string $mediaWikiUser, string $mediaWikiPassword)
 	{
 		$this->redListClient = new RedListClient($redListToken);
 		$this->mediaWikiClient = new ActionApi(
 			self::MEDIAWIKI_ENDPOINT,
 			new UserAndPassword($mediaWikiUser, $mediaWikiPassword)
 		);
-		$this->mediaWikiFactory = new MediawikiFactory($this->mediaWikiClient);
+
+		$mediaWikiFactory = new MediawikiFactory($this->mediaWikiClient);
+
+		$this->pageGetter = $mediaWikiFactory->newPageGetter();
+		$this->revisionSaver = $mediaWikiFactory->newRevisionSaver();
 	}
 
 	/**
@@ -52,27 +64,26 @@ class IUCNBot
 	 */
 	public function run(): void
 	{
-		$categoryTraverser = new MediaWiki\CategoryTraverser($this->mediaWikiClient, 500);
+		$categoryTraverser = new CategoryTraverser($this->mediaWikiClient, 500);
 
 		foreach (self::CATEGORY_PAGES as $categoryPage) {
 			echo "Traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
 				try {
-					echo "... updating \e[3m$species\e[0m ... ";
-					echo $this->handleSpecies($species) ? 'done' : 'skipped';
+					echo "... Updating \e[3m$species\e[0m ... ";
+					echo $this->handleSpecies($species) ? 'Done' : 'Skipped';
 				} catch (Exception $exception) {
-					echo "failed: {$exception->getMessage()}";
+					echo "{$exception->getMessage()}";
 				} finally {
 					echo PHP_EOL;
 				}
 
-				// Rate-limit the bot to 4 edits per minute by sleeping for 15 seconds
-				sleep(15);
+				sleep(10);
 			}
 		}
 
-		echo "... done." . PHP_EOL;
+		echo "... Done." . PHP_EOL;
 	}
 
 	/**
@@ -84,36 +95,34 @@ class IUCNBot
 	 */
 	private function handleSpecies(string $species): bool
 	{
-		$pageGetter = $this->mediaWikiFactory->newPageGetter();
-		$page = $pageGetter->getFromTitle($species);
-		$oldPageContent = $page->getRevisions()->getLatest()?->getContent()->getData();
-
-		if ($oldPageContent === null) {
-			throw new Exception('Invalid page content');
-		}
-
-		$taxobox = $this->getTaxobox($oldPageContent);
+		$page = $this->pageGetter->getFromTitle($species);
+		$pageContent = $page->getRevisions()->getLatest()?->getContent()->getData() ?? throw new Exception('Could not retrieve page content');
+		$taxobox = $this->getTaxobox($pageContent);
 		$assessment = $this->getAssessment($species, $taxobox);
 
-		if (!$this->updateNeeded($assessment, $taxobox)) {
+		if (!$this->isTaxoboxOutdated($assessment, $taxobox) || !$this->isEditAllowed($pageContent)) {
 			return false;
 		}
 
-		$newPageContent = $this->putTaxobox($oldPageContent, $assessment->toDutchTaxobox());
+		$newContent = $this->putTaxobox($pageContent, $assessment->toDutchTaxobox());
 
-		// TODO: Make the edit
+		if ($newContent === $pageContent) {
+			return false;
+		}
+
+		$this->updatePage($page, $newContent);
 
 		return true;
 	}
 
 	/**
-	 * Parses the given page and returns the taxobox info.
+	 * Retrieves the taxobox information from the given wikitext.
 	 *
 	 * @param string $wikitext
 	 * @return array
 	 * @throws Exception
 	 */
-	private function getTaxobox(string $wikitext): array
+	public static function getTaxobox(string $wikitext): array
 	{
 		$command = __DIR__ . '/mwparserfromhell/get_taxobox_info ' . escapeshellarg($wikitext);
 
@@ -142,18 +151,12 @@ class IUCNBot
 	 * @param string $parameter
 	 * @return string
 	 */
-	private static function cleanParameter(string $parameter): string
+	public static function cleanParameter(string $parameter): string
 	{
-		// Remove any templates
 		$parameter = preg_replace('/{{.+?}}/', '', $parameter);
-
-		// Remove any whitespace
 		$parameter = trim($parameter);
-
-		// Remove any apostrophes
 		$parameter = trim($parameter, '\'"');
 
-		// Remove any link syntax
 		return trim($parameter, '[]');
 	}
 
@@ -181,15 +184,13 @@ class IUCNBot
 			$response = $this->redListClient->species->withName($species)->call();
 		}
 
-		$result = $response['result'] ?? throw new Exception('Missing "result" key.');
-
-		if (empty($result)) {
+		if (empty($response['result'])) {
 			throw new Exception('Not assessed');
 		}
 
-		$taxonId = $result[0]['taxonid'] ?? throw new Exception('Missing "taxonid"');
-		$category = $result[0]['category'] ?? throw new Exception('Missing "category"');
-		$publishedYear = $result[0]['published_year'] ?? null;
+		$taxonId = $response['result'][0]['taxonid'] ?? throw new Exception('Missing "taxonid"');
+		$category = $response['result'][0]['category'] ?? throw new Exception('Missing "category"');
+		$publishedYear = $response['result'][0]['published_year'] ?? null;
 
 		if (!is_int($taxonId)) {
 			throw new Exception('Invalid "taxonid"');
@@ -203,23 +204,21 @@ class IUCNBot
 			throw new Exception('Invalid "published_year"');
 		}
 
-		$status = RedListStatus::fromString($category);
-
 		return new RedListAssessment(
 			$taxonId,
-			$status,
+			RedListStatus::fromString($category),
 			$publishedYear
 		);
 	}
 
 	/**
-	 * Returns true if and only if the taxobox needs updating.
+	 * Returns true if and only if the taxobox is outdated.
 	 *
-	 * @param RedListAssessment $assessment
-	 * @param array $taxobox
+	 * @param RedListAssessment $assessment The current RedList assessment
+	 * @param array $taxobox The taxobox to evaluate
 	 * @return bool
 	 */
-	private function updateNeeded(RedListAssessment $assessment, array $taxobox): bool
+	#[Pure] public static function isTaxoboxOutdated(RedListAssessment $assessment, array $taxobox): bool
 	{
 		if (!isset($taxobox['rl-id']) || $taxobox['rl-id'] !== strval($assessment->taxonId)) {
 			return true;
@@ -229,28 +228,60 @@ class IUCNBot
 			return true;
 		}
 
-		$statusSource = $assessment->statusSource !== null ?
-			strval($assessment->statusSource) : null;
+		$statusSource = $assessment->statusSource !== null ? strval($assessment->statusSource) : null;
 
 		return ($taxobox['statusbron'] ?? null) !== $statusSource;
 	}
 
 	/**
-	 * Parses the given page content and updates the taxobox with the given taxobox information.
+	 * This page returns true if and only if the page is allowed to be edited.
+	 *
+	 * There are various reasons why a page should not be changed, such as when it contains a "nobots" template or
+	 * when it is still being worked on.
+	 *
+	 * @param string $wikitext
+	 * @return bool
+	 */
+	public static function isEditAllowed(string $wikitext): bool
+	{
+		$disallowRegex = [
+			'/{{\s*nobots/i', // {{nobots}}
+			'/{{\s*bots\s*\|\s*deny\s*=\s*all/i', // {{bots|deny=all}}
+			'/{{\s*nuweg/i', // {{nuweg}}
+			'/{{\s*speedy/i', // {{speedy}}
+			'/{{\s*delete/i', // {{delete}}
+			'/{{\s*meebezig/i', // {{meebezig}}
+			'/{{\s*mee bezig/i', // {{mee bezig}}
+			'/{{\s*wiu/i', // {{wiu}}
+			'/{{\s*wiu2/i' // {{wiu2}}
+		];
+
+		foreach ($disallowRegex as $regex) {
+			if (preg_match($regex, $wikitext)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Puts the given taxobox in the given wikitext.
 	 *
 	 * @note The parameters of the existing taxobox are not replaced with the given taxobox info. Parameters can only be
 	 * added or altered. If a parameter does not exist in $taxoboxInfo, it will not be updated/removed on the page.
 	 *
-	 * @param string $pageContent
+	 * @param string $wikitext
 	 * @param array $taxoboxInfo
 	 * @return string The resulting page
 	 *
 	 * @throws Exception
 	 */
-	private function putTaxobox(string $pageContent, array $taxoboxInfo): string
+	public static function putTaxobox(string $wikitext, array $taxoboxInfo): string
 	{
 		$taxoboxInfo = json_encode($taxoboxInfo, JSON_THROW_ON_ERROR);
-		$command = __DIR__ . '/mwparserfromhell/put_taxobox_info ' . escapeshellarg($pageContent) . ' ' . escapeshellarg($taxoboxInfo);
+		$command = __DIR__ . '/mwparserfromhell/put_taxobox_info ' .
+			escapeshellarg($wikitext) . ' ' . escapeshellarg($taxoboxInfo);
 
 		exec($command, $shellOutput, $resultCode);
 
@@ -259,5 +290,28 @@ class IUCNBot
 		}
 
 		return implode("\n", $shellOutput);
+	}
+
+	/**
+	 * Update the page with the given content.
+	 *
+	 * @param Page $page
+	 * @param string $newContent
+	 * @throws Exception
+	 */
+	private function updatePage(Page $page, string $newContent): void
+	{
+		if (empty(trim($newContent))) {
+			// Sanity check
+			throw new Exception('Tried to save empty page');
+		}
+
+		$content = new Content($newContent);
+		$revision = new Revision($content, $page->getPageIdentifier());
+		$editInfo = new EditInfo('Bijwerken/toevoegen status van de Rode Lijst van de IUCN', false, true);
+
+		if (!$this->revisionSaver->save($revision, $editInfo)) {
+			throw new Exception('Failed to save revision');
+		}
 	}
 }

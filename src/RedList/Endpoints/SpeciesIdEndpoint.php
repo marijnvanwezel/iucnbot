@@ -10,6 +10,8 @@
 
 namespace MarijnVanWezel\IUCNBot\RedList\Endpoints;
 
+use JetBrains\PhpStorm\Pure;
+
 /**
  * Represents the individual species by ID endpoint for global assessments.
  *
@@ -38,7 +40,7 @@ class SpeciesIdEndpoint extends Endpoint
 	/**
 	 * @inheritDoc
 	 */
-	protected function getEndpoint(): string
+	#[Pure] protected function getEndpoint(): string
 	{
 		return '/species/id/:id';
 	}

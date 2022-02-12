@@ -11,6 +11,7 @@
 namespace MarijnVanWezel\IUCNBot\RedList;
 
 use Exception;
+use JetBrains\PhpStorm\Pure;
 
 enum RedListStatus
 {
@@ -70,11 +71,23 @@ enum RedListStatus
 	 * @param string $status
 	 * @return bool
 	 */
-	public function equalsDutch(string $status): bool
+	#[Pure] public function equalsDutch(string $status): bool
+	{
+		return $this->equals($status, self::DICT_DUTCH);
+	}
+
+	/**
+	 * Returns true if and only if the given status is equal to this status according to the given dictionary.
+	 *
+	 * @param string $status
+	 * @param array $dict
+	 * @return bool
+	 */
+	#[Pure] public function equals(string $status, array $dict): bool
 	{
 		$status = mb_strtolower($status);
 
-		foreach (self::DICT_DUTCH as $key => $translations) {
+		foreach ($dict as $key => $translations) {
 			if (in_array($status, $translations, true)) {
 				return $this->toString() === $key;
 			}
@@ -88,7 +101,7 @@ enum RedListStatus
 	 *
 	 * @return string
 	 */
-	public function toString(): string
+	#[Pure] public function toString(): string
 	{
 		return match ($this) {
 			RedListStatus::EX => 'EX',

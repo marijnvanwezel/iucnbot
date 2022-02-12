@@ -10,6 +10,7 @@
 
 namespace MarijnVanWezel\IUCNBot\RedList;
 
+use JetBrains\PhpStorm\Pure;
 use MarijnVanWezel\IUCNBot\RedList\Endpoints\EndpointFactory;
 
 abstract class BaseRedListClient
@@ -17,12 +18,19 @@ abstract class BaseRedListClient
 	protected string $apiToken;
 	protected EndpointFactory $endpointFactory;
 
-	final public function __construct(string $apiToken)
+	/**
+	 * @param string $apiToken The API token to use for the request
+	 */
+	#[Pure] final public function __construct(string $apiToken)
 	{
 		$this->apiToken = $apiToken;
 		$this->endpointFactory = new EndpointFactory();
 	}
 
+	/**
+	 * @param string $apiToken
+	 * @return $this
+	 */
 	final public function setToken(string $apiToken): static
 	{
 		$this->apiToken = $apiToken;
@@ -30,6 +38,10 @@ abstract class BaseRedListClient
 		return $this;
 	}
 
+	/**
+	 * @param EndpointFactory $endpointFactory
+	 * @return $this
+	 */
 	final public function setEndpointFactory(EndpointFactory $endpointFactory): static
 	{
 		$this->endpointFactory = $endpointFactory;

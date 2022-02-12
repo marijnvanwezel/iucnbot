@@ -10,6 +10,9 @@
 
 namespace MarijnVanWezel\IUCNBot\RedList\Endpoints;
 
+use JetBrains\PhpStorm\ArrayShape;
+use JetBrains\PhpStorm\Pure;
+
 /**
  * Represents the individual species endpoint for global assessments.
  *
@@ -38,7 +41,7 @@ class SpeciesEndpoint extends Endpoint
 	/**
 	 * @inheritDoc
 	 */
-	protected function getEndpoint(): string
+	#[Pure] protected function getEndpoint(): string
 	{
 		return '/species/:name';
 	}
@@ -46,7 +49,7 @@ class SpeciesEndpoint extends Endpoint
 	/**
 	 * @inheritDoc
 	 */
-	protected function getParameters(): array
+	#[ArrayShape(['name' => "string"])] protected function getParameters(): array
 	{
 		return [
 			'name' => $this->name
