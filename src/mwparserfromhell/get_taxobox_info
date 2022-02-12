@@ -25,7 +25,7 @@ def get_taxobox(wikicode):
     templates = wikicode.filter_templates()
 
     taxobox = None
-    pattern = re.compile('((Template|Sjabloon):)?[T|t]axobox')
+    pattern = re.compile(r'\s*((Template|Sjabloon):)?[T|t]axobox\b')
 
     for template in templates:
         if pattern.match(str(template.name)):

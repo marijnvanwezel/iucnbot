@@ -103,7 +103,7 @@ class IUCNBot
 		$assessment = $this->getAssessment($species, $taxobox);
 
 		if (!$this->isTaxoboxOutdated($assessment, $taxobox) || !$this->isEditAllowed($pageContent)) {
-			// The taxobox is already up-to-date, or the page is being worked on.
+			// The taxobox is already up-to-date, or editing the page is prohibited
 			return false;
 		}
 
@@ -139,14 +139,18 @@ class IUCNBot
 
 		$taxobox = json_decode(implode("\n", $shellOutput), true);
 
-		if ($taxobox === null) {
+		if (!is_array($taxobox)) {
 			throw new Exception('Could not parse taxobox');
 		}
 
 		$cleanTaxobox = [];
 
 		foreach ($taxobox as $key => $value) {
-			$cleanTaxobox[trim($key)] = static::cleanParameter($value);
+			if (!is_int($key)) {
+				$key = trim($key);
+			}
+
+			$cleanTaxobox[$key] = static::cleanParameter($value);
 		}
 
 		return $cleanTaxobox;
@@ -225,7 +229,7 @@ class IUCNBot
 	 */
 	#[Pure] public static function isTaxoboxOutdated(RedListAssessment $assessment, array $taxobox): bool
 	{
-		if (!isset($taxobox['rl-id']) || $taxobox['rl-id'] !== strval($assessment->taxonId)) {
+		if (!isset($taxobox['rl-id']) || strval($taxobox['rl-id']) !== strval($assessment->taxonId)) {
 			return true;
 		}
 
@@ -233,9 +237,10 @@ class IUCNBot
 			return true;
 		}
 
-		$statusSource = $assessment->statusSource !== null ? strval($assessment->statusSource) : null;
+		$assessmentStatusSource = $assessment->statusSource !== null ? strval($assessment->statusSource) : null;
+		$taxoboxStatusSource = isset($taxobox['statusbron']) ? strval($taxobox['statusbron']) : null;
 
-		return ($taxobox['statusbron'] ?? null) !== $statusSource;
+		return $assessmentStatusSource !== $taxoboxStatusSource;
 	}
 
 	/**
@@ -262,7 +267,7 @@ class IUCNBot
 		];
 
 		foreach ($disallowRegex as $regex) {
-			if (preg_match($regex, $wikitext)) {
+			if (preg_match($regex, $wikitext) === 1) {
 				return false;
 			}
 		}
@@ -294,7 +299,14 @@ class IUCNBot
 			throw new Exception('Could not update taxobox');
 		}
 
-		return implode("\n", $shellOutput);
+		$newWikitext = implode("\n", $shellOutput);
+
+		if (preg_match('/{{\s*taxobox/i', mb_strtolower($newWikitext)) !== 1) {
+			// Sanity check: Make sure the returned text actually still contains a Taxobox template
+			throw new Exception('Could not update taxobox');
+		}
+
+		return $newWikitext;
 	}
 
 	/**
