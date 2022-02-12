@@ -42,8 +42,9 @@ class IUCNBot
 	private readonly ActionApi $mediaWikiClient;
 	private readonly PageGetter $pageGetter;
 	private readonly RevisionSaver $revisionSaver;
+	private readonly bool $dryRun;
 
-	public function __construct(string $redListToken, string $mediaWikiUser, string $mediaWikiPassword)
+	public function __construct(string $redListToken, string $mediaWikiUser, string $mediaWikiPassword, bool $dryRun = false)
 	{
 		$this->redListClient = new RedListClient($redListToken);
 		$this->mediaWikiClient = new ActionApi(
@@ -55,6 +56,7 @@ class IUCNBot
 
 		$this->pageGetter = $mediaWikiFactory->newPageGetter();
 		$this->revisionSaver = $mediaWikiFactory->newRevisionSaver();
+		$this->dryRun = $dryRun;
 	}
 
 	/**
@@ -72,9 +74,9 @@ class IUCNBot
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
 				try {
 					echo "... Updating \e[3m$species\e[0m ... ";
-					echo $this->handleSpecies($species) ? 'Done' : 'Skipped';
+					echo $this->handleSpecies($species) ? "\e[32mDone\e[0m" : "\e[33mSkipped\e[0m";
 				} catch (Exception $exception) {
-					echo "{$exception->getMessage()}";
+					echo "\e[31m{$exception->getMessage()}\e[0m";
 				} finally {
 					echo PHP_EOL;
 				}
@@ -101,6 +103,7 @@ class IUCNBot
 		$assessment = $this->getAssessment($species, $taxobox);
 
 		if (!$this->isTaxoboxOutdated($assessment, $taxobox) || !$this->isEditAllowed($pageContent)) {
+			// The taxobox is already up-to-date, or the page is being worked on.
 			return false;
 		}
 
@@ -110,7 +113,9 @@ class IUCNBot
 			return false;
 		}
 
-		$this->updatePage($page, $newContent);
+		if (!$this->dryRun) {
+			$this->updatePage($page, $newContent);
+		}
 
 		return true;
 	}
@@ -224,7 +229,7 @@ class IUCNBot
 			return true;
 		}
 
-		if (!isset($taxobox['status']) || $assessment->status->equalsDutch($taxobox['status'])) {
+		if (!isset($taxobox['status']) || !$assessment->status->equalsDutch($taxobox['status'])) {
 			return true;
 		}
 

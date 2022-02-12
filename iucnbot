@@ -112,8 +112,12 @@ if (!is_string(getenv('MEDIAWIKI_USER_NAME')) || !is_string(getenv('MEDIAWIKI_PA
 	die(1);
 }
 
+$opts = getopt('', ['dry', 'dryrun', 'dry-run']);
+$dryRun = isset($opts['dry']) || isset($opts['dryrun']) || isset($opts['dry-run']);
+
 (new IUCNBot(
     getenv('IUCNBOT_API_TOKEN'),
 	getenv('MEDIAWIKI_USER_NAME'),
-	getenv('MEDIAWIKI_PASSWORD')
+	getenv('MEDIAWIKI_PASSWORD'),
+	$dryRun
 ))->run();
