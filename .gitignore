@@ -10,3 +10,6 @@
 .phpunit.cache
 coverage_report
 clover.xml
+
+# IUCNBot
+checked_pages.txt

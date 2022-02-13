@@ -8,7 +8,7 @@
  * file that was distributed with this source code.
  */
 
-namespace MarijnVanWezel\IUCNBot\MediaWiki;
+namespace MarijnVanWezel\IUCNBot;
 
 use Addwiki\Mediawiki\Api\Client\Action\ActionApi;
 use Addwiki\Mediawiki\Api\Client\Action\Request\ActionRequest;

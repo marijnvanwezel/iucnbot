@@ -15,18 +15,6 @@ use JetBrains\PhpStorm\Pure;
 
 enum RedListStatus
 {
-	private const DICT_DUTCH = [
-		'EX' => ['ex', 'uitgestorven', 'extinct'],
-		'EW' => ['ew', 'uihw', 'uitgestorven in het wild', 'uitgestorveninhetwild', 'extinct in the wild', 'extinctinthewild'],
-		'CR' => ['cr', 'kritiek', 'critically endangered'],
-		'EN' => ['en', 'bedreigd', 'endangered'],
-		'VU' => ['vu', 'kwetsbaar', 'vulnerable'],
-		'CD' => ['cd', 'lr/cd', 'vba', 'van bescherming afhankelijk', 'vanbeschermingafhankelijk', 'conservation dependent'],
-		'NT' => ['nt', 'lr/nt', 'gevoelig', 'near threatened'],
-		'LC' => ['lc', 'lr/lc', 'veilig', 'secure', 'niet bedreigd', 'least concern'],
-		'DD' => ['dd', 'onzeker', 'datadeficient', 'data deficient']
-	];
-
 	case EX; // Extinct
 	case EW; // Extinct in the wild
 	case CR; // Critically endangered
@@ -41,47 +29,22 @@ enum RedListStatus
 	 * Parses the given status.
 	 *
 	 * @param string $status
-	 * @return RedListStatus
-	 * @throws Exception When the status is invalid
+	 * @return RedListStatus|null The corresponding RedListStatus, or NULL if the status is not matched
 	 */
-	public static function fromString(string $status): RedListStatus
+	public static function fromString(string $status): ?RedListStatus
 	{
-		return match ($status) {
-			'EX' => RedListStatus::EX,
-			'EW' => RedListStatus::EW,
-			'CR' => RedListStatus::CR,
-			'EN' => RedListStatus::EN,
-			'VU' => RedListStatus::VU,
-			'CD', 'LR/cd' => RedListStatus::CD,
-			'NT', 'LR/nt' => RedListStatus::NT,
-			'LC', 'LR/lc' => RedListStatus::LC,
-			'DD' => RedListStatus::DD,
-			default => throw new Exception('Invalid status')
+		return match (strtolower($status)) {
+			'ex', 'uitgestorven', 'extinct', 'fossil', 'fossiel' => RedListStatus::EX,
+			'ew', 'uihw', 'uitgestorven in het wild', 'uitgestorveninhetwild', 'extinct in the wild', 'extinctinthewild' => RedListStatus::EW,
+			'cr', 'kritiek', 'critically endangered' => RedListStatus::CR,
+			'en', 'bedreigd', 'endangered' => RedListStatus::EN,
+			'vu', 'kwetsbaar', 'vulnerable' => RedListStatus::VU,
+			'cd', 'lr/cd', 'vba', 'van bescherming afhankelijk', 'vanbeschermingafhankelijk', 'conservation dependent' => RedListStatus::CD,
+			'nt', 'lr/nt', 'gevoelig', 'near threatened' => RedListStatus::NT,
+			'lc', 'lr/lc', 'veilig', 'secure', 'niet bedreigd', 'least concern' => RedListStatus::LC,
+			'dd', 'onzeker', 'datadeficient', 'data deficient' => RedListStatus::DD,
+			default => null
 		};
-	}
-
-	/**
-	 * Returns true if and only if the given status is equal to this status (Dutch-oriented comparison).
-	 *
-	 * This function was derived from the allowed values for the "status" parameter in the Taxobox template on the
-	 * Dutch Wikipedia.
-	 *
-	 * @link https://nl.wikipedia.org/wiki/Sjabloon:Taxobox
-	 *
-	 * @param string $status
-	 * @return bool
-	 */
-	#[Pure] public function equals(string $status): bool
-	{
-		$status = mb_strtolower($status);
-
-		foreach (self::DICT_DUTCH as $key => $translations) {
-			if (in_array($status, $translations, true)) {
-				return $this->toString() === $key;
-			}
-		}
-
-		return false;
 	}
 
 	/**
@@ -111,16 +74,16 @@ enum RedListStatus
 	 */
 	public function toCategory(): string
 	{
-		return match ($this) {
-			RedListStatus::EX => 'Categorie:IUCN-status uitgestorven',
-			RedListStatus::EW => 'Categorie:IUCN-status uitgestorven in het wild',
-			RedListStatus::CR => 'Categorie:IUCN-status kritiek',
-			RedListStatus::EN => 'Categorie:IUCN-status bedreigd',
-			RedListStatus::VU => 'Categorie:IUCN-status kwetsbaar',
-			RedListStatus::CD => 'Categorie:IUCN-status van bescherming afhankelijk',
-			RedListStatus::NT => 'Categorie:IUCN-status gevoelig',
-			RedListStatus::LC => 'Categorie:IUCN-status niet bedreigd',
-			RedListStatus::DD => 'Categorie:IUCN-status onzeker'
-		};
+		return sprintf('Categorie:IUCN-status %s', match ($this) {
+			RedListStatus::EX => 'uitgestorven',
+			RedListStatus::EW => 'uitgestorven in het wild',
+			RedListStatus::CR => 'kritiek',
+			RedListStatus::EN => 'bedreigd',
+			RedListStatus::VU => 'kwetsbaar',
+			RedListStatus::CD => 'van bescherming afhankelijk',
+			RedListStatus::NT => 'gevoelig',
+			RedListStatus::LC => 'niet bedreigd',
+			RedListStatus::DD => 'onzeker'
+		});
 	}
 }

@@ -32,7 +32,7 @@ final class RedListAssessment
 	 * @link https://nl.wikipedia.org/wiki/Sjabloon:Taxobox
 	 * @return string[]
 	 */
-	#[Pure] #[ArrayShape(['rl-id' => "string", 'status' => "string", 'statusbron' => "string"])] public function toTaxobox(): array
+	#[Pure] #[ArrayShape(['rl-id' => "string", 'status' => "string", 'statusbron' => "string"])] public function toArray(): array
 	{
 		return [
 			'rl-id' => strval($this->taxonId),
