@@ -29,13 +29,14 @@ class IUCNBot
 		'Categorie:Wikipedia:Plantenlemma'
 	];
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
-	private const CHECKED_PAGES_FILE = 'checked_pages.txt';
+	private const CHECKED_PAGES_FILE = '.page_cache';
 
 	private readonly RedListClient $redListClient;
 	private readonly ActionApi $mediaWikiClient;
 	private readonly PageGetter $pageGetter;
 	private readonly RevisionSaver $revisionSaver;
 	private readonly bool $dryRun;
+	private readonly string $mediaWikiUser;
 
 	public function __construct(string $redListToken, string $mediaWikiUser, string $mediaWikiPassword, bool $dryRun = false)
 	{
@@ -49,7 +50,9 @@ class IUCNBot
 
 		$this->pageGetter = $mediaWikiFactory->newPageGetter();
 		$this->revisionSaver = $mediaWikiFactory->newRevisionSaver();
+
 		$this->dryRun = $dryRun;
+		$this->mediaWikiUser = $mediaWikiUser;
 	}
 
 	/**
@@ -67,13 +70,21 @@ class IUCNBot
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
 				if (in_array($species, $checkedPages, true)) {
+					// TODO: Improve efficiency
 					// Skip all the pages we have already checked in a previous run
 					continue;
 				}
 
+				if ($this->hasTalkpageEdits(5)) {
+					die("\e[31mTalkpage was edited.\e[0m" . PHP_EOL);
+				}
+
+				$hasEdited = false;
+
 				try {
 					echo "... Updating \e[3m$species\e[0m ... ";
-					echo $this->handleSpecies($species) ? "\e[32mDone\e[0m" : "\e[33mSkipped\e[0m";
+					$hasEdited = $this->handleSpecies($species);
+					echo $hasEdited ? "\e[32mDone\e[0m" : "\e[33mSkipped\e[0m";
 					echo PHP_EOL;
 				} catch (Exception $exception) {
 					echo "\e[31m{$exception->getMessage()}\e[0m" . PHP_EOL;
@@ -83,7 +94,7 @@ class IUCNBot
 					$this->markPageAsChecked($species);
 				}
 
-				sleep(5);
+				$hasEdited ? sleep(4) : sleep(2);
 			}
 		}
 
@@ -182,6 +193,42 @@ class IUCNBot
 			RedListStatus::fromString($category),
 			$yearAssessed
 		);
+	}
+
+	/**
+	 * Returns true if the bots talkpage was edited in the last $minutesAgo minutes.
+	 *
+	 * @param int $minutesAgo
+	 * @return bool
+	 */
+	private function hasTalkpageEdits(int $minutesAgo): bool
+	{
+		$query = sprintf('%s?%s', self::MEDIAWIKI_ENDPOINT, http_build_query([
+			'action' => 'query',
+			'format' => 'json',
+			'prop' => 'revisions',
+			'titles' => sprintf('User talk:%s', $this->mediaWikiUser),
+			'rvprop' => 'timestamp',
+			'rvlimit' => 1
+		]));
+
+		$apiResponse = file_get_contents($query);
+
+		if ($apiResponse === false) {
+			return true;
+		}
+
+		$apiResponse = json_decode($apiResponse, true);
+
+		if (!is_array($apiResponse)) {
+			return true;
+		}
+
+		$pages = $apiResponse['query']['pages'];
+		$talkPage = $pages[array_key_first($pages)];
+		$timestamp = $talkPage['revisions'][0]['timestamp'];
+
+		return time() - strtotime($timestamp) < $minutesAgo * 60;
 	}
 
 	/**

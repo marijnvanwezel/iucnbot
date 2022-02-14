@@ -12,4 +12,4 @@ coverage_report
 clover.xml
 
 # IUCNBot
-checked_pages.txt
+.page_cache
