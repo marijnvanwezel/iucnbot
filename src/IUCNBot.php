@@ -36,6 +36,7 @@ class IUCNBot
 	private readonly RevisionSaver $revisionSaver;
 	private readonly bool $dryRun;
 	private readonly string $mediaWikiUser;
+	private readonly AssessedPages $assessedPages;
 
 	public function __construct(string $redListToken, string $mediaWikiUser, string $mediaWikiPassword, bool $dryRun = false)
 	{
