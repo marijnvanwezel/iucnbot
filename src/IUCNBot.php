@@ -29,7 +29,6 @@ class IUCNBot
 		'Categorie:Wikipedia:Plantenlemma'
 	];
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
-	private const CHECKED_PAGES_FILE = '.page_cache';
 
 	private readonly RedListClient $redListClient;
 	private readonly ActionApi $mediaWikiClient;
@@ -53,6 +52,8 @@ class IUCNBot
 
 		$this->dryRun = $dryRun;
 		$this->mediaWikiUser = $mediaWikiUser;
+
+		$this->assessedPages = new AssessedPages();
 	}
 
 	/**
@@ -62,16 +63,14 @@ class IUCNBot
 	 */
 	public function run(): void
 	{
-		$checkedPages = $this->getCheckedPages();
 		$categoryTraverser = new CategoryTraverser($this->mediaWikiClient, 500);
 
 		foreach (self::CATEGORY_PAGES as $categoryPage) {
 			echo "Traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
-				if (in_array($species, $checkedPages, true)) {
-					// TODO: Improve efficiency
-					// Skip all the pages we have already checked in a previous run
+				if ($this->assessedPages->isAssessed($species)) {
+					// Skip the pages we have already checked in a previous run
 					continue;
 				}
 
@@ -91,7 +90,7 @@ class IUCNBot
 				}
 
 				if (!$this->dryRun) {
-					$this->markPageAsChecked($species);
+					$this->assessedPages->markAssessed($species);
 				}
 
 				$hasEdited ? sleep(4) : sleep(2);
@@ -229,33 +228,5 @@ class IUCNBot
 		$timestamp = $talkPage['revisions'][0]['timestamp'];
 
 		return time() - strtotime($timestamp) < $minutesAgo * 60;
-	}
-
-	/**
-	 * Returns the list of pages previously checked.
-	 *
-	 * @return array
-	 */
-	private static function getCheckedPages(): array
-	{
-		if (!file_exists(self::CHECKED_PAGES_FILE)) {
-			file_put_contents(self::CHECKED_PAGES_FILE, '');
-		}
-
-		return explode("\n", file_get_contents(self::CHECKED_PAGES_FILE));
-	}
-
-	/**
-	 * Adds the page to the list of previously checked pages.
-	 *
-	 * @param string $pageName
-	 * @return void
-	 */
-	private static function markPageAsChecked(string $pageName): void
-	{
-		$file = fopen(self::CHECKED_PAGES_FILE, 'a');
-
-		fwrite($file, "\n" . $pageName);
-		fclose($file);
 	}
 }
