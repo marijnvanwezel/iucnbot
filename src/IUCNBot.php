@@ -18,6 +18,7 @@ use Addwiki\Mediawiki\Api\MediawikiFactory;
 use Addwiki\Mediawiki\Api\Service\PageGetter;
 use Addwiki\Mediawiki\Api\Service\RevisionSaver;
 use DateTime;
+use Error;
 use Exception;
 use MarijnVanWezel\IUCNBot\RedList\RedListAssessment;
 use MarijnVanWezel\IUCNBot\RedList\RedListClient;
@@ -96,15 +97,15 @@ class IUCNBot
 					$hasEdited = $this->handleSpecies($species);
 
 					echo $hasEdited ? "\e[32mDone\e[0m" . PHP_EOL : "\e[33mSkipped\e[0m" . PHP_EOL;
-				} catch (Exception $exception) {
+				} catch (Exception|Error $exception) {
 					echo "\e[31m{$exception->getMessage()}\e[0m" . PHP_EOL;
-				} finally {
-					if (!$this->dryRun) {
-						$this->assessedPages->markAssessed($species);
-					}
-
-					$hasEdited ? sleep(4) : sleep(2);
 				}
+
+				if (!$this->dryRun) {
+					$this->assessedPages->markAssessed($species);
+				}
+
+				$hasEdited ? sleep(4) : sleep(2);
 			}
 		}
 
@@ -233,6 +234,10 @@ class IUCNBot
 		$apiResponse = curl_exec($curl);
 
 		curl_close($curl);
+
+		if (!is_string($apiResponse)) {
+			return true;
+		}
 
 		$apiResponse = json_decode($apiResponse, true);
 
