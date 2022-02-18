@@ -83,16 +83,15 @@ class IUCNBot
 			echo "Traversing category \e[3m$categoryPage\e[0m ..." . PHP_EOL;
 
 			foreach ($categoryTraverser->fetchPages($categoryPage) as $species) {
+				if ($this->assessedPages->isAssessed($species)) {
+					// Skip the pages we have already checked in a previous run
+					continue;
+				}
+
 				$hasEdited = false;
 
 				try {
 					echo "... Updating \e[3m$species\e[0m ... ";
-
-					if ($this->assessedPages->isAssessed($species)) {
-						// Skip the pages we have already checked in a previous run
-						echo "\e[33mPreviously assessed\e[0m" . PHP_EOL;
-						continue;
-					}
 
 					$hasEdited = $this->handleSpecies($species);
 
@@ -215,6 +214,7 @@ class IUCNBot
 	 *
 	 * @param int $minutesAgo
 	 * @return bool
+	 * @throws Exception
 	 */
 	private function hasTalkpageEdits(int $minutesAgo): bool
 	{
@@ -236,13 +236,13 @@ class IUCNBot
 		curl_close($curl);
 
 		if (!is_string($apiResponse)) {
-			return true;
+			throw new Exception('Could not get talkpage edits');
 		}
 
 		$apiResponse = json_decode($apiResponse, true);
 
 		if (!is_array($apiResponse)) {
-			return true;
+			throw new Exception('Could not get talkpage edits');
 		}
 
 		$pages = $apiResponse['query']['pages'];
