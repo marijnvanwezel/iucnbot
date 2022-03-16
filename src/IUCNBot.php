@@ -39,7 +39,8 @@ class IUCNBot
 		'Categorie:Wikipedia:IUCN Red List Status NT',
 		'Categorie:Wikipedia:IUCN Red List Status VU',
 		'Categorie:Wikipedia:Diersoorten',
-		'Categorie:Wikipedia:Plantenlemma'
+		'Categorie:Wikipedia:Plantenlemma',
+		'Categorie:Wikipedia:Schimmellemma'
 	];
 	private const MEDIAWIKI_ENDPOINT = 'https://nl.wikipedia.org/w/api.php'; // nlwiki
 
